@@ -78,12 +78,24 @@ To add the others: click the **+** next to the table tabs, and name them `Compan
 
 > Exact names matter: `Pipeline` not `pipeline` or `Pipelines`.
 
+#### The company fields, at a glance
+
+This is the part people get wrong, so here it is in one place. Two of the tables hold a **link** field named `Company`, and one table holds the company's actual name in a field called `Company Name`:
+
+| Table | Field name (exact) | Field type |
+|---|---|---|
+| `Companies` | `Company Name` | Single line text (the primary/first column) |
+| `Pipeline` | `Company` | Link to another record, linked to `Companies` |
+| `Job Applications` | `Company` | Link to another record, linked to `Companies` |
+
+The two `Company` fields are links that connect each job to a row in the `Companies` table. The `Company Name` field is the plain text name that lives inside `Companies`. Note `Company` and `Company Name` are different fields in different tables. The sections below walk through each one.
+
 ### 2.3 Set up the **Companies** table
 
 This one is simple.
 
 1. Open the **Companies** table.
-2. It already has a first column (the "primary field"). Rename it to exactly `Company Name`. (Double-click the column header to rename.)
+2. It already has a first column (the "primary field"). Rename it to exactly `Company Name`. (Double-click the column header to rename.) This is `Company Name`, not `Company`. The field called `Company` is a different, link-type field that lives in the `Pipeline` and `Job Applications` tables, not here.
 3. Delete any other default columns (Notes, Attachments, etc.) if you like. They do no harm if left.
 
 ### 2.4 Set up the **Job Applications** table
