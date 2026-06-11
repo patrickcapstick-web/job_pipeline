@@ -276,6 +276,15 @@ The log line `Pre-filter: N in, M out (dropped X on title, Y on location, Z on c
 - An Airtable authentication or "NOT_FOUND"/"INVALID" error : the `AIRTABLE_API_KEY` or `AIRTABLE_BASE_ID` is wrong, or the token was not given access to your base (Part 3.2, step 5), or a **table name** does not match exactly (`Pipeline`, `Companies`, `Job Applications`).
 - `Gmail IMAP login failed` : the app password is wrong, has spaces in it, or 2-Step Verification is not on. Redo Part 4 and re-save the `GMAIL_APP_PASSWORD` secret.
 
+**You see a box titled `AIRTABLE SETUP PROBLEM` in the log.** Good. The pipeline caught the problem early and is telling you, in plain words, exactly what to fix. Read the box, do what it says, then re-run it (Actions tab, open the failed run, **Re-run all jobs**). The two most common versions are below.
+
+**"Airtable could not find your base ... Not Found"** (also appears as a `404` error). One of three things, in order of likelihood:
+1. Your access token is not connected to your base. Go to https://airtable.com/create/tokens, click your token, and under **Access** make sure your base is listed. If not, click **Add a base**, choose it, then **Save changes**.
+2. The `AIRTABLE_BASE_ID` secret is wrong. Open your base in the browser, copy the part of the address that starts with `app`, and update the secret (Part 6).
+3. Your token is missing the `schema.bases:read` scope. Add it on the same token page.
+
+**"Unknown field name" / the box lists missing fields** (also appears as a `422` error). A column is missing or misspelled in one of your tables. The box names the exact table and field. Open that table in Airtable and add or rename the column to match exactly. The most common miss is the **Company** field on the **Pipeline** and **Job Applications** tables: it must be of type **Link to another record**, pointing at the **Companies** table (see Parts 2.4 and 2.5). Field names are case-sensitive, so `Company` is not the same as `company`.
+
 **It runs green but writes zero rows, every time.** Usually the filters are too strict, or no alert emails have arrived yet, or the example `TARGET_COMPANIES` are not posting roles that fit. Loosen filters (Part 9) and give the email alerts a day or two.
 
 **A job's data looks half-missing in Airtable** (for example Matched Skills is always blank). A field name in the Pipeline table does not exactly match the list in Part 2.5. Airtable silently drops writes to fields that do not exist. Re-check spelling and capitalization.

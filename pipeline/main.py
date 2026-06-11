@@ -20,6 +20,7 @@ import sys
 
 from . import config
 from .airtable_client import AirtableClient
+from .preflight import run_airtable_preflight
 from .filter import pre_filter
 from .sources import ashby, gmail_parser, greenhouse, lever, smartrecruiters
 
@@ -105,6 +106,10 @@ def main() -> int:
     base_id = require_env("AIRTABLE_BASE_ID")
     gmail_address = require_env("GMAIL_ADDRESS")
     gmail_password = require_env("GMAIL_APP_PASSWORD")
+
+    # Validate the Airtable base, tables and fields up front. Fails with a
+    # plain-language message instead of a raw traceback if setup is wrong.
+    run_airtable_preflight(airtable_key, base_id)
 
     # 1. Gather
     raw = gather_postings(gmail_address, gmail_password)
