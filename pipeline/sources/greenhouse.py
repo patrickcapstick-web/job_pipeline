@@ -75,10 +75,17 @@ def _strip_html(html: str) -> str:
 
 
 def _infer_remote_type(location: str, description: str) -> str:
-    text = f"{location} {description}".lower()
-    if "remote" in text and "hybrid" not in location.lower():
+    # Remote is read from the location string only. Descriptions often say
+    # "remote-friendly" or "we have remote teams" in boilerplate, which used to
+    # tag onsite roles (e.g. San Francisco, Toronto) as Remote and let them
+    # past the location filter. Hybrid can still come from the description,
+    # since hybrid and onsite are treated the same by the filter.
+    loc = (location or "").lower()
+    if "hybrid" in loc:
+        return "Hybrid"
+    if "remote" in loc:
         return "Remote"
-    if "hybrid" in text:
+    if "hybrid" in (description or "").lower():
         return "Hybrid"
     if location:
         return "Onsite"

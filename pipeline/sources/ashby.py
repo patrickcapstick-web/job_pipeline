@@ -38,7 +38,12 @@ def fetch(company_name: str, slug: str, lookback_days: int) -> list[JobPosting]:
         published = _parse_date(item.get("publishedAt"))
         if published and published < cutoff:
             continue
-        location = item.get("location", "") or ""
+        # Include secondary locations so a posting that lists your city as a
+        # second office still passes the location check.
+        locations = [item.get("location", "") or ""] + [
+            (s or {}).get("location", "") for s in item.get("secondaryLocations") or []
+        ]
+        location = "; ".join(dict.fromkeys(loc for loc in locations if loc))
         description = _strip_html(item.get("descriptionHtml", ""))
         jobs.append(JobPosting(
             title=item.get("title", "").strip(),
@@ -47,7 +52,8 @@ def fetch(company_name: str, slug: str, lookback_days: int) -> list[JobPosting]:
             url=item.get("jobUrl", ""),
             job_id=item.get("id", ""),
             location=location,
-            remote_type=_infer_remote_type(location, description, item.get("isRemote", False)),
+            remote_type=_infer_remote_type(
+                location, description, item.get("isRemote", False), item.get("workplaceType")),
             salary_range=_extract_salary(item.get("compensationTierSummary"), description),
             description=description[:8000],
             posted_date=published,
@@ -72,13 +78,31 @@ def _strip_html(html: str) -> str:
     return " ".join(text.split())
 
 
-def _infer_remote_type(location: str, description: str, is_remote_flag: bool) -> str:
+def _infer_remote_type(location: str, description: str, is_remote_flag: bool,
+                       workplace_type: str | None = None) -> str:
+    # workplaceType is the most reliable signal. Some boards (OpenAI, Notion)
+    # set isRemote=True on roles whose workplaceType is Hybrid in one city,
+    # so isRemote is only trusted when workplaceType is missing.
+    wt = (workplace_type or "").strip().lower()
+    if wt == "remote":
+        return "Remote"
+    if wt == "hybrid":
+        return "Hybrid"
+    if wt in ("onsite", "on-site", "on site"):
+        return "Onsite"
     if is_remote_flag:
         return "Remote"
-    text = f"{location} {description}".lower()
-    if "remote" in text and "hybrid" not in location.lower():
+    # Remote is read from the location string only. Descriptions often say
+    # "remote-friendly" or "we have remote teams" in boilerplate, which used to
+    # tag onsite roles (e.g. San Francisco, Toronto) as Remote and let them
+    # past the location filter. Hybrid can still come from the description,
+    # since hybrid and onsite are treated the same by the filter.
+    loc = (location or "").lower()
+    if "hybrid" in loc:
+        return "Hybrid"
+    if "remote" in loc:
         return "Remote"
-    if "hybrid" in text:
+    if "hybrid" in (description or "").lower():
         return "Hybrid"
     if location:
         return "Onsite"

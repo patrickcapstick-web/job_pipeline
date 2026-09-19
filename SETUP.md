@@ -118,7 +118,7 @@ This is where found jobs land. Create each field below with the **exact** name a
 | 3 | `Job ID` | Single line text | |
 | 4 | `Location` | Single line text | |
 | 5 | `Remote Type` | Single select | add options: `Remote`, `Hybrid`, `Onsite` |
-| 6 | `Source` | Single select | add options: `LinkedIn Email`, `Indeed Email`, `Greenhouse`, `Lever`, `Ashby`, `SmartRecruiters` |
+| 6 | `Source` | Single select | add options: `LinkedIn Email`, `Indeed Email`, `Greenhouse`, `Lever`, `Ashby`, `SmartRecruiters`, `Workday`, `Built In` |
 | 7 | `URL` | URL | |
 | 8 | `Salary Range` | Single line text | |
 | 9 | `Posted Date` | Date | |
@@ -129,13 +129,15 @@ This is where found jobs land. Create each field below with the **exact** name a
 | 14 | `Country` | Single line text | |
 | 15 | `State` | Single line text | |
 | 16 | `City` | Single line text | |
+| 17 | `Match Score` | Number | **Optional.** Under Format, choose Integer (no decimals) |
 
 Tips:
 - For **Single select** fields you do not strictly have to pre-add every option. The pipeline is allowed to create missing options automatically. But adding `Remote / Hybrid / Onsite` and the `Status` options yourself gives you tidy colors and avoids surprises.
 - To add a field: click the **+** at the end of the header row, type the exact name, pick the type, then save.
+- Field 17, `Match Score`, is optional. If you add it, every job gets a 0-100 score, and you can sort by it to see the best fits first. If you skip it, everything else works the same.
 - Double-check field 12 is spelled `Matched Skills` (capital M, capital S, a space between). This is the field that records *why* a job passed the filter, and a typo here means that information silently disappears.
 
-**You should now have:** one Airtable base with three tables (`Pipeline`, `Companies`, `Job Applications`), the Pipeline table carrying all 16 fields above, and the two link fields pointing at `Companies`.
+**You should now have:** one Airtable base with three tables (`Pipeline`, `Companies`, `Job Applications`), the Pipeline table carrying the 16 required fields above (17 if you added Match Score), and the two link fields pointing at `Companies`.
 
 ---
 
@@ -232,6 +234,12 @@ The project ships with example settings aimed at a senior data-analyst search. Y
 
 Everything in `config.py` has comments explaining it. You do not have to change anything beyond the three items above to get going.
 
+**Optional extras, whenever you like** (same file, same way of editing):
+- **More big companies (Workday).** Many large employers (banks, insurers, retailers, hospitals) use a careers site called Workday. Scroll to `WORKDAY_COMPANIES`. A list of example companies is already there, switched off. To switch one on, delete the `# ` (hash and space) at the start of its line. To add your own, the comment just above the list shows how to read the three parts you need from the company's careers-page address.
+- **The Built In job site.** Built In lists tech and startup jobs. Find `BUILTIN_ENABLED = False` and change `False` to `True`. On the next line, `BUILTIN_SITE`, you can keep the national site or paste in your city's site from the list in the comment (for example `"https://www.builtinchicago.org"`).
+- **Skip a company.** To never see jobs from a company (your current employer, say), add its name in lowercase and in quotes to `EXCLUDE_COMPANIES`, for example `EXCLUDE_COMPANIES = ["acme"]`.
+- **Remote jobs outside the US.** By default, remote jobs based outside the US are skipped. If you want them, change `REMOTE_US_ONLY = True` to `REMOTE_US_ONLY = False`.
+
 **You should now have:** a `config.py` saved with at least your own city (or an empty list for remote-only) and your target titles.
 
 ---
@@ -259,7 +267,7 @@ If it finished green and wrote some rows, you are done. If it went red, see Part
 
 ## Part 9: Review your results and tune
 
-1. Open your Airtable base and the **Pipeline** table. New jobs appear with `Status = New`.
+1. Open your Airtable base and the **Pipeline** table. New jobs appear with `Status = New`. If you added the optional `Match Score` field, click **Sort** in the toolbar, choose **Match Score** and pick the highest-first option (9 → 1), so the strongest fits sit at the top.
 2. For each job, read the **Matched Skills** field to see why it passed, click the **URL** to view the posting, and set **Status** to `Reviewing`, `Applied`, `Skipped` or `Archived` as you go.
 
 **Getting too few results?** Loosen the filters in `config.py` (Part 7 shows you how to edit it):
@@ -272,7 +280,7 @@ If it finished green and wrote some rows, you are done. If it went red, see Part
 - Add unwanted words to `EXCLUDE_TITLE_TERMS`.
 - Trim `TARGET_TITLES` down to fewer, more specific titles.
 
-The log line `Pre-filter: N in, M out (dropped X on title, Y on location, Z on core stack, W on broad skills)` tells you exactly where jobs are being dropped, so you can adjust the right knob.
+The log line `Pre-filter: N in, M out (dropped X on title, Y on location, Z on core stack, W on broad skills, ...)` tells you exactly where jobs are being dropped, so you can adjust the right knob.
 
 > One habit to keep: do **not delete** rows from the Pipeline table. To make a job stop reappearing, set its `Status` to `Archived`. Deleting it erases the "already seen" memory and it comes back on the next run.
 
@@ -296,6 +304,10 @@ The log line `Pre-filter: N in, M out (dropped X on title, Y on location, Z on c
 3. Your token is missing the `schema.bases:read` scope. Add it on the same token page.
 
 **"Unknown field name" / the box lists missing fields** (also appears as a `422` error). A column is missing or misspelled in one of your tables. The box names the exact table and field. Open that table in Airtable and add or rename the column to match exactly. The most common miss is the **Company** field on the **Pipeline** and **Job Applications** tables: it must be of type **Link to another record**, pointing at the **Companies** table (see Parts 2.4 and 2.5). Field names are case-sensitive, so `Company` is not the same as `company`.
+
+**The run is red and the log says `row(s) failed to write to Airtable`.** The pipeline found jobs but Airtable refused to save them. Scroll up to the line starting `Failed to write batch`: it names the problem, most often a field name that is misspelled in the Pipeline table (Part 2.5). Fix it and re-run. The run turns red on purpose, so you never miss jobs that were found but not saved.
+
+**The log says `Built In: no search page could be read`.** The Built In site didn't answer, or blocked the request. Nothing else is affected; the other sources still ran. If it keeps happening, turn Built In off again (`BUILTIN_ENABLED = False`).
 
 **It runs green but writes zero rows, every time.** Usually the filters are too strict, or no alert emails have arrived yet, or the example `TARGET_COMPANIES` are not posting roles that fit. Loosen filters (Part 9) and give the email alerts a day or two.
 

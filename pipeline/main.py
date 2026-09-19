@@ -17,12 +17,13 @@ with Status="New" for manual review in Airtable.
 import logging
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 from . import config
 from .airtable_client import AirtableClient
 from .preflight import run_airtable_preflight
 from .filter import pre_filter
-from .sources import ashby, gmail_parser, greenhouse, lever, smartrecruiters
+from .sources import ashby, builtin, gmail_parser, greenhouse, lever, smartrecruiters, workday
 
 
 def configure_logging() -> None:
@@ -57,22 +58,47 @@ def gather_postings(gmail_address: str, gmail_password: str) -> list:
     except Exception as e:
         logging.error("Gmail source failed: %s", e)
 
-    # ATS pollers
+    # Company job boards. These run several at a time to keep the run short;
+    # each one catches its own errors and returns [] if its board is down.
     poller = {
         "greenhouse": greenhouse.fetch,
         "lever": lever.fetch,
         "ashby": ashby.fetch,
         "smartrecruiters": smartrecruiters.fetch,
     }
+    tasks = []
     for company_name, ats, slug in config.TARGET_COMPANIES:
         if ats not in poller:
             logging.warning("Unknown ATS %s for %s, skipping", ats, company_name)
             continue
+        tasks.append((f"{ats} {company_name}", poller[ats],
+                      (company_name, slug, config.LOOKBACK_DAYS)))
+    for company_name, board in config.WORKDAY_COMPANIES:
+        tasks.append((f"workday {company_name}", workday.fetch,
+                      (company_name, board, config.LOOKBACK_DAYS,
+                       config.WORKDAY_SEARCH_TERMS, config.WORKDAY_MAX_PAGES)))
+
+    def run(task):
+        label, fn, args = task
         try:
-            jobs = poller[ats](company_name, slug, config.LOOKBACK_DAYS)
-            all_jobs.extend(jobs)
+            return fn(*args)
         except Exception as e:
-            logging.error("%s %s failed: %s", ats, company_name, e)
+            logging.error("%s failed: %s", label, e)
+            return []
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for jobs in pool.map(run, tasks):
+            all_jobs.extend(jobs)
+
+    # Built In runs last so that when the same job also came from a company's
+    # own board, the duplicate check keeps the direct company link.
+    if config.BUILTIN_ENABLED:
+        try:
+            all_jobs.extend(builtin.fetch_all(
+                config.BUILTIN_SEARCH_TERMS, config.LOOKBACK_DAYS,
+                config.BUILTIN_MAX_PAGES, config.BUILTIN_SITE))
+        except Exception as e:
+            logging.error("Built In source failed: %s", e)
 
     logging.info("Source totals: %d postings collected", len(all_jobs))
     return all_jobs
@@ -109,7 +135,7 @@ def main() -> int:
 
     # Validate the Airtable base, tables and fields up front. Fails with a
     # plain-language message instead of a raw traceback if setup is wrong.
-    run_airtable_preflight(airtable_key, base_id)
+    pipeline_fields = run_airtable_preflight(airtable_key, base_id)
 
     # 1. Gather
     raw = gather_postings(gmail_address, gmail_password)
@@ -118,7 +144,8 @@ def main() -> int:
     deduped = dedupe_within_batch(raw)
 
     # 3. Cross-run dedup against existing Pipeline + Job Applications
-    airtable = AirtableClient(api_key=airtable_key, base_id=base_id)
+    airtable = AirtableClient(api_key=airtable_key, base_id=base_id,
+                              pipeline_fields=pipeline_fields)
     existing = airtable.get_existing_dedup_keys()
     fresh = [j for j in deduped if not airtable.is_duplicate(j, existing)]
     logging.info("Cross-run dedup: %d -> %d", len(deduped), len(fresh))
@@ -126,10 +153,21 @@ def main() -> int:
     # 4. Pre-filter
     filtered = pre_filter(fresh)
 
-    # 5. Write (no scoring step; review manually in Airtable)
-    written = airtable.write_pipeline_rows(filtered)
+    # 5. Write. Each row carries a keyword-based Match Score (see filter.py);
+    #    there is no AI scoring step. Review manually in Airtable.
+    written, failed = airtable.write_pipeline_rows(filtered)
 
     logging.info("Run complete. Wrote %d new Pipeline rows.", written)
+
+    # A failed write means jobs were found but not saved. Exit with an error so
+    # the run shows red in GitHub Actions instead of a green run with missing
+    # data. The log line above the error says which batch failed and why.
+    if failed:
+        logging.error(
+            "%d row(s) failed to write to Airtable. Failing the run so it is "
+            "noticed. Check the error above (often a misspelled field name).", failed
+        )
+        return 1
     return 0
 
 

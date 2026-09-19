@@ -21,7 +21,10 @@ log = logging.getLogger(__name__)
 
 
 class AirtableClient:
-    def __init__(self, api_key: str, base_id: str):
+    def __init__(self, api_key: str, base_id: str, pipeline_fields: set | None = None):
+        # Field names present on the Pipeline table (from preflight). Used to
+        # decide whether optional fields like "Match Score" can be written.
+        self.pipeline_fields = pipeline_fields or set()
         self.api = Api(api_key)
         self.pipeline = self.api.table(base_id, "Pipeline")
         self.applications = self.api.table(base_id, "Job Applications")
@@ -134,8 +137,14 @@ class AirtableClient:
     # Write
     # -------------------------------------------------------------------------
 
-    def write_pipeline_rows(self, jobs: list[JobPosting]) -> int:
-        """Write JobPostings to the Pipeline table. Returns count written."""
+    def write_pipeline_rows(self, jobs: list[JobPosting]) -> tuple[int, int]:
+        """Write JobPostings to the Pipeline table.
+
+        Returns (written, failed). A non-zero failed count makes the run exit
+        with an error, so a broken write shows up as a red run in GitHub
+        Actions instead of a green run that quietly saved nothing. (With a
+        1-day lookback, a missed write is a job you never see.)
+        """
         today = date.today().isoformat()
         records = []
         for job in jobs:
@@ -171,21 +180,25 @@ class AirtableClient:
             # single-line text or long-text field. Guarded like the fields above
             # so we never write an empty value. This is the main signal for
             # reviewing false positives by hand: it shows *why* a role passed.
+            if job.match_score and "Match Score" in self.pipeline_fields:
+                fields["Match Score"] = job.match_score
             if job.matched_skills:
                 fields["Matched Skills"] = ", ".join(job.matched_skills)
             records.append({"fields": fields})
 
         if not records:
-            return 0
+            return 0, 0
 
         # Batch in chunks of 10 (Airtable's default batch limit)
         written = 0
+        failed = 0
         for i in range(0, len(records), 10):
             chunk = records[i:i + 10]
             try:
                 self.pipeline.batch_create([r["fields"] for r in chunk], typecast=True)
                 written += len(chunk)
             except Exception as e:
+                failed += len(chunk)
                 log.error("Failed to write batch starting at %d: %s", i, e)
-        log.info("Wrote %d Pipeline rows", written)
-        return written
+        log.info("Wrote %d Pipeline rows (%d failed)", written, failed)
+        return written, failed

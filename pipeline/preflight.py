@@ -39,6 +39,10 @@ REQUIRED_FIELDS = {
     "Job Applications": ["Job Title", "Company"],
 }
 
+# Optional Pipeline fields. Written only when they exist, so an older base
+# without them keeps working. See SETUP.md section 2.5.
+OPTIONAL_PIPELINE_FIELDS = ("Match Score",)
+
 _BAR = "=" * 70
 
 
@@ -154,7 +158,8 @@ def run_airtable_preflight(api_key, base_id):
 
     Raises SystemExit with a readable, plain-language message on any problem,
     so the GitHub Actions log shows what to fix rather than a stack trace.
-    Returns None on success.
+    On success, returns the set of field names on the Pipeline table, so the
+    writer knows which optional fields it can fill in.
     """
     api = Api(api_key)
     try:
@@ -178,3 +183,9 @@ def run_airtable_preflight(api_key, base_id):
         raise SystemExit(_missing_fields_message(missing_by_table))
 
     log.info("Airtable preflight OK: base, tables and fields all present.")
+    pipeline_fields = {f.name for f in tables["Pipeline"].fields}
+    for name in OPTIONAL_PIPELINE_FIELDS:
+        if name not in pipeline_fields:
+            log.info("Optional Pipeline field '%s' not found, so it will be "
+                     "skipped. Add it to use it (SETUP.md section 2.5).", name)
+    return pipeline_fields

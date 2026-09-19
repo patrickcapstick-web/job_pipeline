@@ -107,6 +107,13 @@ EXCLUDE_TITLE_TERMS = [
 ]
 
 # -----------------------------------------------------------------------------
+# Companies to skip entirely, from every source. Handy for your current
+# employer. Lowercase, one per line, e.g. ["acme", "globex"]. Matched as a
+# whole word, so "acme" also skips "Acme Labs" but not "Acmeville".
+# -----------------------------------------------------------------------------
+EXCLUDE_COMPANIES = []
+
+# -----------------------------------------------------------------------------
 # Two-tier skill filter.
 #
 # Tier 1 (CORE_STACK_KEYWORDS): the specific tools/methods that signal a role is
@@ -204,6 +211,17 @@ BROAD_SKILL_KEYWORDS = [
 MIN_BROAD_SKILL_MATCHES = 3
 
 # -----------------------------------------------------------------------------
+# Match Score (0-100), written to the optional "Match Score" field in Airtable
+# so you can sort the best fits to the top. Every job that passes starts at
+# SCORE_BASE, then earns points for each Tier 1 and Tier 2 keyword found in the
+# description, up to a cap. Format: (points per keyword, most points possible).
+# Jobs from email alerts have no description, so they just get SCORE_BASE.
+# -----------------------------------------------------------------------------
+SCORE_BASE = 50
+SCORE_CORE_POINTS = (6, 25)
+SCORE_BROAD_POINTS = (3, 25)
+
+# -----------------------------------------------------------------------------
 # Location filter
 # -----------------------------------------------------------------------------
 # A role passes the location filter if ANY of these are true:
@@ -226,6 +244,21 @@ REMOTE_KEYWORDS = [
     "wfh",
     "distributed",
     "fully remote",
+]
+
+# Keep only remote jobs open to people in the United States. With True, a
+# job listed as "Remote Spain", "Canada - Remote" or "Remote, Bangalore" is
+# dropped. Set to False if you are outside the US or open to any country.
+REMOTE_US_ONLY = True
+
+# Non-US cities that mark a remote job as outside the US (used only when
+# REMOTE_US_ONLY is True). Countries and regions are already detected
+# automatically; this list catches city-only locations.
+NON_US_CITY_TERMS = [
+    "bangalore", "bengaluru", "hyderabad", "mumbai", "pune", "delhi",
+    "london", "dublin", "toronto", "vancouver", "montreal", "sydney",
+    "melbourne", "singapore", "tokyo", "berlin", "amsterdam", "paris",
+    "barcelona", "madrid", "warsaw", "sao paulo", "mexico city", "tel aviv",
 ]
 
 # -----------------------------------------------------------------------------
@@ -251,14 +284,14 @@ REMOTE_KEYWORDS = [
 TARGET_COMPANIES = [
     # Fintech / Payments
     ("Stripe", "greenhouse", "stripe"),                  # [ok]
-    ("Plaid", "lever", "plaid"),                         # [fixed] was Greenhouse, actually on Lever
+    ("Plaid", "ashby", "plaid"),                         # [fixed] moved Lever -> Ashby (Sept 2026)
     ("Mercury", "ashby", "mercury"),                     # [ok]
     ("Brex", "greenhouse", "brex"),                      # [ok]
     ("Ramp", "ashby", "ramp"),                           # [ok]
     ("Chime", "greenhouse", "chime"),                    # [ok]
     ("Affirm", "greenhouse", "affirm"),                  # [ok]
     ("Robinhood", "greenhouse", "robinhood"),            # [ok]
-    ("Marqeta", "greenhouse", "marqeta"),                # [ok]
+    # Marqeta: board stopped responding (404) in Sept 2026 and no replacement was found.
     ("Modern Treasury", "ashby", "moderntreasury"),      # [fixed] moved from Greenhouse to Ashby
 
     # Tech / SaaS
@@ -266,7 +299,7 @@ TARGET_COMPANIES = [
     ("Linear", "ashby", "linear"),                       # [ok]
     ("Vercel", "greenhouse", "vercel"),                  # [ok]
     ("Datadog", "greenhouse", "datadog"),                # [ok]
-    ("dbt Labs", "greenhouse", "dbtlabsinc"),            # [?]
+    # dbt Labs: board stopped responding (404) in Sept 2026 and no replacement was found.
     ("HubSpot", "greenhouse", "hubspot"),                # [ok]
     ("Asana", "greenhouse", "asana"),                    # [ok]
     ("Figma", "greenhouse", "figma"),                    # [ok]
@@ -303,6 +336,71 @@ TARGET_COMPANIES = [
     ("Vanta", "ashby", "vanta"),                         # [ok]
     ("Scale AI", "greenhouse", "scaleai"),               # [fixed] was Ashby, actually on Greenhouse
 ]
+
+# -----------------------------------------------------------------------------
+# Workday companies (optional).
+#
+# Many large employers (banks, insurers, retailers, healthcare) post jobs on
+# Workday instead of the job boards above. To add one, open its careers page
+# and look at the address. It looks like:
+#     https://allstate.wd5.myworkdayjobs.com/allstate_careers
+#             ^^^^^^^^  ^                      ^^^^^^^^^^^^^^^^
+#             tenant    number                 site
+# Then add a line in this format:  ("Display name", "tenant|number|site"),
+#
+# Workday boards are huge, so the pipeline does not read every job. It runs
+# each of WORKDAY_SEARCH_TERMS as a search on each company's board and only
+# opens jobs whose titles match TARGET_TITLES. Use short phrases close to the
+# titles you want.
+#
+# The lines below were all confirmed working in Sept 2026. Remove the "# " at
+# the start of a line to turn that company on.
+# -----------------------------------------------------------------------------
+WORKDAY_COMPANIES = [
+    # ("Allstate", "allstate|5|allstate_careers"),
+    # ("Capital One", "capitalone|12|Capital_One"),
+    # ("Morningstar", "morningstar|5|Americas"),
+    # ("Motorola Solutions", "motorolasolutions|5|Careers"),
+    # ("TransUnion", "transunion|5|TransUnion"),
+    # ("CDW", "cdw|5|Careers"),
+    # ("Abbott", "abbott|5|abbottcareers"),
+    # ("Zendesk", "zendesk|1|Zendesk"),
+    # ("Chewy", "chewy|5|External"),
+    # ("Etsy", "etsy|5|Etsy_Careers"),
+    # ("Zillow", "zillow|5|Zillow_Group_External"),
+    # ("PayPal", "paypal|1|jobs"),
+    # ("Mastercard", "mastercard|1|CorporateCareers"),
+    # ("Salesforce", "salesforce|12|External_Career_Site"),
+    # ("Adobe", "adobe|5|external_experienced"),
+    # ("Target", "target|5|targetcareers"),
+    # ("Humana", "humana|5|Humana_External_Career_Site"),
+]
+WORKDAY_SEARCH_TERMS = [
+    "data analyst", "business analyst", "product analyst", "insights",
+    "analytics manager", "strategy operations",
+]
+WORKDAY_MAX_PAGES = 2   # pages of 20 results read per search term
+
+# -----------------------------------------------------------------------------
+# Built In (optional). Built In is a job site for tech and startup jobs, with a
+# national site and several city sites. When turned on, the pipeline runs each
+# of BUILTIN_SEARCH_TERMS there once a day and opens only jobs whose titles
+# match TARGET_TITLES.
+#
+# To turn it on: set BUILTIN_ENABLED = True and pick the site for your area:
+#   "https://builtin.com"                 (all US)
+#   "https://www.builtinchicago.org"      "https://www.builtinnyc.com"
+#   "https://www.builtinaustin.com"       "https://www.builtinboston.com"
+#   "https://www.builtinla.com"           "https://www.builtinseattle.com"
+#   "https://www.builtinsf.com"           "https://www.builtincolorado.com"
+# -----------------------------------------------------------------------------
+BUILTIN_ENABLED = False
+BUILTIN_SITE = "https://builtin.com"
+BUILTIN_SEARCH_TERMS = [
+    "senior data analyst", "business analyst", "product analyst",
+    "analytics manager", "insights", "strategy operations",
+]
+BUILTIN_MAX_PAGES = 2   # pages of 25 results read per search term
 
 # -----------------------------------------------------------------------------
 # Gmail search queries for alert-email parsing.
